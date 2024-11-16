@@ -1,0 +1,6 @@
+log_interval: 10 # Time in seconds between each log
+thresholds:
+  cpu: 80    # CPU usage threshold for spikes (%)
+  memory: 75 # Memory usage threshold for spikes (%)
+  disk: 90   # Disk usage threshold for spikes (%)
+  network: 500 # Network usage threshold for spikes (MB/s)
