@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sys-monitor-report/internal/report"
 
 	"github.com/shirou/gopsutil/v4/process"
 )
@@ -77,49 +78,75 @@ func GetTopProcesses(metric string, topN int) ([]ProcessData, error) {
 	if len(processData) > topN {
 		processData = processData[:topN]
 	}
+
+	UpdatePrometheusTopProcesses(&processData, metric)
+
 	return processData, nil
 }
 
-// DisplayTopProcesses calls sub-functions to display top processes by category
-func DisplayTopProcesses() {
-	fmt.Println("\n=== Top Processes ===")
+// FormatTopProcesses formats top processes data in Prometheus-compatible format
+func FormatTopProcesses(processes []ProcessData, metric string) string {
+	var formattedData string
 
-	// Top CPU Processes
-	fmt.Println("Top CPU Processes:")
-	topCPUProcesses, err := GetTopProcesses("cpu", 10)
-	if err != nil {
-		fmt.Printf("Error collecting top CPU processes: %v\n", err)
-	} else {
-		displayTopProcessesByMetric(topCPUProcesses, "CPU")
+	// HELP and TYPE for CPU and Memory Metrics
+	formattedData += fmt.Sprintf(
+		"# HELP process_%s_usage Process %s usage statistics\n",
+		metric,
+		metric,
+	)
+	formattedData += fmt.Sprintf("# TYPE process_%s_usage gauge\n", metric)
+
+	// HELP and TYPE for I/O Reads and Writes
+	formattedData += "# HELP process_io_read_count Process I/O read operations\n"
+	formattedData += "# TYPE process_io_read_count counter\n"
+	formattedData += "# HELP process_io_write_count Process I/O write operations\n"
+	formattedData += "# TYPE process_io_write_count counter\n"
+
+	// Loop through processes to add metrics
+	for _, proc := range processes {
+		// Add CPU/Memory usage
+		formattedData += fmt.Sprintf(
+			"process_%s_usage{pid=\"%d\",name=\"%s\"} %.2f\n",
+			metric, proc.PID, escapeQuotes(proc.Name), proc.CPUUsage,
+		)
+
+		// Add I/O Read Count
+		formattedData += fmt.Sprintf(
+			"process_io_read_count{pid=\"%d\",name=\"%s\"} %d\n",
+			proc.PID, escapeQuotes(proc.Name), proc.ReadCount,
+		)
+
+		// Add I/O Write Count
+		formattedData += fmt.Sprintf(
+			"process_io_write_count{pid=\"%d\",name=\"%s\"} %d\n",
+			proc.PID, escapeQuotes(proc.Name), proc.WriteCount,
+		)
 	}
 
-	// Top Virtual Memory Processes
-	fmt.Println("\nTop Memory Processes:")
-	topVirtMemProcesses, err := GetTopProcesses("memory", 10)
-	if err != nil {
-		fmt.Printf("Error collecting top memory processes: %v\n", err)
-	} else {
-		displayTopProcessesByMetric(topVirtMemProcesses, "Memory")
+	return formattedData
+}
+
+func UpdatePrometheusTopProcesses(processes *[]ProcessData, metric string) {
+	for _, proc := range *processes {
+		name := escapeQuotes(proc.Name)
+
+		switch metric {
+		case "cpu":
+			report.TopCPUProcesses.WithLabelValues(fmt.Sprintf("%d", proc.PID), name).
+				Set(proc.CPUUsage)
+		case "memory":
+			report.TopMemoryProcesses.WithLabelValues(fmt.Sprintf("%d", proc.PID), name).
+				Set(proc.MemUsage)
+		}
+
+		report.ProcessIOReadCount.WithLabelValues(fmt.Sprintf("%d", proc.PID), name).
+			Add(float64(proc.ReadCount))
+		report.ProcessIOWriteCount.WithLabelValues(fmt.Sprintf("%d", proc.PID), name).
+			Add(float64(proc.WriteCount))
 	}
 }
 
-// displayTopProcessesByMetric prints the top N processes for a given metric
-func displayTopProcessesByMetric(processes []ProcessData, metric string) {
-	fmt.Printf(
-		"  %-13s | %-26s | %-15s | %-16s | %-17s | %-10s\n",
-		"PID", "Name", "Metric", "Usage", "I/O Reads", "I/O Writes",
-	)
-	fmt.Println(strings.Repeat("-", 120)) // Separator line
-
-	for _, proc := range processes {
-		fmt.Printf(
-			"  PID: %-8d | Name: %-20s | %-15s | Usage: %-8.2f%% | Reads: %-10d | Writes: %-10d\n",
-			proc.PID,
-			proc.Name,
-			metric,
-			proc.CPUUsage,
-			proc.ReadCount,
-			proc.WriteCount,
-		)
-	}
+// escapeQuotes escapes double quotes in process names for Prometheus labels
+func escapeQuotes(input string) string {
+	return strings.ReplaceAll(input, `"`, `\"`)
 }

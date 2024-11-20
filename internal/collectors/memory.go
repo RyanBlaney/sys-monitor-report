@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"fmt"
+	"sys-monitor-report/internal/report"
 
 	"github.com/shirou/gopsutil/v4/mem"
 )
@@ -67,25 +68,85 @@ func GetMemoryData() (MemoryData, error) {
 
 	data.Memory.UsedPercent = (float64(data.Memory.Used) / float64(data.Memory.Total)) * 100
 
+	// Update Prometheus Metrics
+	report.OverallMemoryUsage.WithLabelValues("used_percent").Set(data.Memory.UsedPercent)
+	report.OverallMemoryUsage.WithLabelValues("total_mb").Set(float64(data.Memory.Total) / 1e6)
+	report.OverallMemoryUsage.WithLabelValues("used_mb").Set(float64(data.Memory.Used) / 1e6)
+	report.OverallMemoryUsage.WithLabelValues("free_mb").Set(float64(data.Memory.Free) / 1e6)
+
+	report.VirtualMemoryUsage.WithLabelValues("used_percent").Set(data.VirtualMemory.UsedPercent)
+	report.VirtualMemoryUsage.WithLabelValues("total_mb").
+		Set(float64(data.VirtualMemory.Total) / 1e6)
+	report.VirtualMemoryUsage.WithLabelValues("used_mb").Set(float64(data.VirtualMemory.Used) / 1e6)
+	report.VirtualMemoryUsage.WithLabelValues("free_mb").Set(float64(data.VirtualMemory.Free) / 1e6)
+
+	report.SwapMemoryUsage.WithLabelValues("used_percent").Set(data.SwapMemory.UsedPercent)
+	report.SwapMemoryUsage.WithLabelValues("total_mb").Set(float64(data.SwapMemory.Total) / 1e6)
+	report.SwapMemoryUsage.WithLabelValues("used_mb").Set(float64(data.SwapMemory.Used) / 1e6)
+	report.SwapMemoryUsage.WithLabelValues("free_mb").Set(float64(data.SwapMemory.Free) / 1e6)
+
 	return data, nil
 }
 
-// DisplayMemoryData prints the relevant memory metrics in a human-readable format
-func DisplayMemoryData(memoryData *MemoryData) {
-	fmt.Println("=== Memory Metrics ===")
+func FormatMemoryData(memoryData *MemoryData) string {
+	var formattedData string
 
-	// Virtual Memory (RAM)
-	fmt.Println("Virtual Memory (RAM):")
-	fmt.Printf("  Total: %.2f GB\n", float64(memoryData.VirtualMemory.Total)/1e9)
-	fmt.Printf("  Used: %.2f GB\n", float64(memoryData.VirtualMemory.Used)/1e9)
-	fmt.Printf("  Free: %.2f GB\n", float64(memoryData.VirtualMemory.Free)/1e9)
-	fmt.Printf("  Usage: %.2f%%\n", memoryData.VirtualMemory.UsedPercent)
+	// Overall Memory Metrics
+	formattedData += "# HELP overall_memory_usage Overall memory usage statistics\n"
+	formattedData += "# TYPE overall_memory_usage gauge\n"
+	formattedData += fmt.Sprintf(
+		"overall_memory_usage{type=\"used_percent\"} %.2f\n", memoryData.Memory.UsedPercent,
+	)
+	formattedData += fmt.Sprintf(
+		"overall_memory_usage{type=\"total_mb\"} %.2f\n",
+		float64(memoryData.Memory.Total)/(1024*1024),
+	)
+	formattedData += fmt.Sprintf(
+		"overall_memory_usage{type=\"used_mb\"} %.2f\n",
+		float64(memoryData.Memory.Used)/(1024*1024),
+	)
+	formattedData += fmt.Sprintf(
+		"overall_memory_usage{type=\"free_mb\"} %.2f\n",
+		float64(memoryData.Memory.Free)/(1024*1024),
+	)
 
-	// Swap Memory
-	fmt.Println("\nSwap Memory:")
-	fmt.Printf("  Total: %.2f GB\n", float64(memoryData.SwapMemory.Total)/1e9)
-	fmt.Printf("  Used: %.2f GB\n", float64(memoryData.SwapMemory.Used)/1e9)
-	fmt.Printf("  Free: %.2f GB\n", float64(memoryData.SwapMemory.Free)/1e9)
-	fmt.Printf("  Usage: %.2f%%\n", memoryData.SwapMemory.UsedPercent)
-	fmt.Println("")
+	// Virtual Memory Metrics
+	formattedData += "# HELP virtual_memory_usage Virtual memory usage statistics\n"
+	formattedData += "# TYPE virtual_memory_usage gauge\n"
+	formattedData += fmt.Sprintf(
+		"virtual_memory_usage{type=\"used_percent\"} %.2f\n", memoryData.VirtualMemory.UsedPercent,
+	)
+	formattedData += fmt.Sprintf(
+		"virtual_memory_usage{type=\"total_mb\"} %.2f\n",
+		float64(memoryData.VirtualMemory.Total)/(1024*1024),
+	)
+	formattedData += fmt.Sprintf(
+		"virtual_memory_usage{type=\"used_mb\"} %.2f\n",
+		float64(memoryData.VirtualMemory.Used)/(1024*1024),
+	)
+	formattedData += fmt.Sprintf(
+		"virtual_memory_usage{type=\"free_mb\"} %.2f\n",
+		float64(memoryData.VirtualMemory.Free)/(1024*1024),
+	)
+
+	// Swap Memory Metrics
+	formattedData += "# HELP swap_memory_usage Swap memory usage statistics\n"
+	formattedData += "# TYPE swap_memory_usage gauge\n"
+	formattedData += fmt.Sprintf(
+		"swap_memory_usage{type=\"used_percent\"} %.2f\n", memoryData.SwapMemory.UsedPercent,
+	)
+	formattedData += fmt.Sprintf(
+		"swap_memory_usage{type=\"total_mb\"} %.2f\n",
+		float64(memoryData.SwapMemory.Total)/(1024*1024),
+	)
+	formattedData += fmt.Sprintf(
+		"swap_memory_usage{type=\"used_mb\"} %.2f\n",
+		float64(memoryData.SwapMemory.Used)/(1024*1024),
+	)
+	formattedData += fmt.Sprintf(
+		"swap_memory_usage{type=\"free_mb\"} %.2f\n",
+		float64(memoryData.SwapMemory.Free)/(1024*1024),
+	)
+
+	return formattedData
 }

@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"fmt"
+	"sys-monitor-report/internal/report"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/cpu"
@@ -14,19 +15,32 @@ type CPUData struct {
 	NumCores   int32
 }
 
-// DisplayCPUData prints the relevant CPU metrics in a human-readable format
-func DisplayCPUData(cpuData *CPUData) {
-	fmt.Println("=== CPU Metrics ===")
+func FormatCPUData(cpuData *CPUData) string {
+	var formattedData string
 
-	// Total CPU Usage
-	fmt.Printf("Total CPU Usage: %.2f%%\n", cpuData.TotalUsage)
+	// Overall Usage
+	formattedData = formattedData +
+		"# HELP cpu_overall_usage CPU overall usage percentage"
+	formattedData = formattedData +
+		"# TYPE cpu_overall_usage gauge"
+	formattedData = formattedData + fmt.Sprintf(
+		"cpu_overall_usage %.2f%%\n\n", cpuData.TotalUsage,
+	)
 
-	// Per-Core CPU Usage
-	fmt.Println("\nPer-Core CPU Usage:")
+	// Per-Core Usage
+	formattedData = formattedData +
+		"# HELP cpu_usage_percentage CPU usage percentage by core"
+	formattedData = formattedData +
+		"# TYPE cpu_usage_percentage gauge"
 	for i, usage := range cpuData.PerCore {
-		fmt.Printf("  Core %d: %.2f%%\n", i+1, usage)
+		formattedData = formattedData + fmt.Sprintf(
+			"cpu_usage_percentage{core=\"%d\"} %.2f%%\n", i+1, usage,
+		)
 	}
-	fmt.Println("")
+
+	formattedData += "\n"
+
+	return formattedData
 }
 
 // GetCPUData collects overall, per-core, and top process CPU usage
@@ -40,6 +54,8 @@ func GetCPUData() (CPUData, error) {
 	}
 	if len(totalUsage) > 0 {
 		data.TotalUsage = totalUsage[0]
+
+		report.OverallCPUUsage.Set(data.TotalUsage)
 	}
 
 	// Per-Core Usage
@@ -48,6 +64,10 @@ func GetCPUData() (CPUData, error) {
 		return data, fmt.Errorf("error collecting per-core CPU usage: %v\n", err)
 	}
 	data.PerCore = perCoreUsage
+
+	for i, usage := range perCoreUsage {
+		report.PerCoreCPUUsage.WithLabelValues(fmt.Sprintf("core_%d", i+1)).Set(usage)
+	}
 
 	// Number of Cores
 	numCores, err := cpu.Counts(true)

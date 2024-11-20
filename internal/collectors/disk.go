@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"fmt"
+	"sys-monitor-report/internal/report"
 	"time"
 
 	"github.com/shirou/gopsutil/v4/disk"
@@ -48,6 +49,19 @@ func GetPartitionData() ([]PartitionData, error) {
 			// Append additional mount points for the same device
 			partitionMap[part.Device].Mountpoints = append(partitionMap[part.Device].Mountpoints, part.Mountpoint)
 		}
+
+		// Update Prometheus Metrics
+		report.PartitionSpace.WithLabelValues(part.Device, "total_gb").
+			Set(float64(usage.Total) / 1e9)
+		report.PartitionSpace.WithLabelValues(part.Device, "used_gb").
+			Set(float64(usage.Used) / 1e9)
+		report.PartitionSpace.WithLabelValues(part.Device, "free_gb").
+			Set(float64(usage.Free) / 1e9)
+		report.PartitionSpace.WithLabelValues(part.Device, "used_percent").
+			Set(usage.UsedPercent)
+
+		report.PartitionMountpoints.WithLabelValues(part.Device, part.Mountpoint).Set(1)
+
 	}
 
 	// Convert map to slice
@@ -59,27 +73,35 @@ func GetPartitionData() ([]PartitionData, error) {
 	return partitionData, nil
 }
 
-// DisplayPartitionData displays all of the relevent metrics
-func DisplayPartitionData(partitions *[]PartitionData) {
-	fmt.Println("=== Partition Data ===")
-	for _, part := range *partitions {
-		fmt.Printf("Device: %s\n", part.Device)
-		fmt.Printf("  Filesystem: %s\n", part.Filesystem)
-		fmt.Printf("  Total Space: %.2f GB\n", float64(part.Total)/1e9)
-		fmt.Printf("  Used Space: %.2f GB\n", float64(part.Used)/1e9)
-		fmt.Printf("  Free Space: %.2f GB\n", float64(part.Free)/1e9)
-		fmt.Println("  Mountpoints:")
-		for _, mount := range part.Mountpoints {
-			fmt.Printf("    - %s\n", mount)
-		}
-	}
-	fmt.Println("")
-}
-
 type DiskIOData struct {
 	Device     string
 	ReadSpeed  float64
 	WriteSpeed float64
+}
+
+func FormatDiskIOSpeeds(diskData *[]DiskIOData) string {
+	var formattedData string
+
+	formattedData += "# Help disk_io_read_speed Disk I/O read speed in MB/s\n"
+	formattedData += "# Type disk_io_read_speed gauge\n"
+	formattedData += "# Help disk_io_write_speed Disk I/O write speed in MB/s\n"
+	formattedData += "# Type disk_io_write_speed gauge\n"
+
+	for _, data := range *diskData {
+		// diskIOReadSpeed.With(prometheus.Labels{"device": data.Device}).Set(data.ReadSpeed)
+		// diskIOWriteSpeed.With(prometheus.Labels{"device": data.Device}).Set(data.WriteSpeed)
+
+		formattedData += fmt.Sprintf(
+			"disk_io_read_speed{device=\"%s\"} %.2f\n",
+			data.Device, data.ReadSpeed,
+		)
+		formattedData += fmt.Sprintf(
+			"disk_io_write_speed{device=\"%s\"} %.2f\n",
+			data.Device, data.WriteSpeed,
+		)
+	}
+
+	return formattedData
 }
 
 func DisplayDiskIOSpeeds(diskData *[]DiskIOData) {
@@ -116,8 +138,68 @@ func GetDiskIOSpeeds(interval time.Duration) ([]DiskIOData, error) {
 				ReadSpeed:  readSpeed,
 				WriteSpeed: writeSpeed,
 			})
+
+			// Update Prometheus Data
+			report.DiskIOReadSpeed.WithLabelValues(device).Set(readSpeed / 1e6)
+			report.DiskIOWriteSpeed.WithLabelValues(device).Set(writeSpeed / 1e6)
 		}
 	}
 
 	return ioData, nil
+}
+
+// FormatPartitionData formats and displays partition data in Prometheus-compatible format
+func FormatPartitionData(partitions *[]PartitionData) string {
+	var formattedData string
+
+	// Add HELP and TYPE directives
+	formattedData += "# HELP partition_space Partition space usage statistics\n"
+	formattedData += "# TYPE partition_space gauge\n"
+
+	// Loop through partitions to format their data
+	for _, part := range *partitions {
+		deviceLabel := fmt.Sprintf(`device="%s"`, part.Device)
+
+		// Add total space metric
+		formattedData += fmt.Sprintf(
+			"partition_space{%s,type=\"total_gb\"} %.2f\n",
+			deviceLabel, float64(part.Total)/1e9,
+		)
+
+		// Add used space metric
+		formattedData += fmt.Sprintf(
+			"partition_space{%s,type=\"used_gb\"} %.2f\n",
+			deviceLabel, float64(part.Used)/1e9,
+		)
+
+		// Add free space metric
+		formattedData += fmt.Sprintf(
+			"partition_space{%s,type=\"free_gb\"} %.2f\n",
+			deviceLabel, float64(part.Free)/1e9,
+		)
+
+		// Add used percentage metric
+		usedPercent := (float64(part.Used) / float64(part.Total)) * 100
+		formattedData += fmt.Sprintf(
+			"partition_space{%s,type=\"used_percent\"} %.2f\n",
+			deviceLabel, usedPercent,
+		)
+	}
+
+	// Add mountpoint data
+	formattedData += "# HELP partition_mountpoints List of mountpoints per partition\n"
+	formattedData += "# TYPE partition_mountpoints gauge\n"
+
+	for _, part := range *partitions {
+		for _, mount := range part.Mountpoints {
+			formattedData += fmt.Sprintf(
+				"partition_mountpoints{device=\"%s\",mount=\"%s\"} 1\n",
+				part.Device, mount,
+			)
+		}
+	}
+
+	formattedData += "\n"
+
+	return formattedData
 }

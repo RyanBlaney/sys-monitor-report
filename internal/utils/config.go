@@ -7,8 +7,9 @@ import (
 )
 
 type Config struct {
-	LogInterval int `yaml:"log_interval"`
-	Thresholds  struct {
+	LogInterval         int `yaml:"log_interval"`
+	LogIntervalHighFreq int `yaml:"log_interval_high_freq"`
+	Thresholds          struct {
 		CPU     int `yaml:"cpu"`
 		Memory  int `yaml:"memory"`
 		Disk    int `yaml:"disk"`

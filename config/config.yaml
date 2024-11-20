@@ -1,4 +1,5 @@
 log_interval: 10 # Time in seconds between each log
+log_interval_high_freq: 1 # For spike detection
 thresholds:
   cpu: 80    # CPU usage threshold for spikes (%)
   memory: 75 # Memory usage threshold for spikes (%)
